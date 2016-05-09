@@ -1,0 +1,38 @@
+#!/usr/bin/python
+
+import sys
+import subprocess
+
+replicas = ["ec2-54-85-32-37.compute-1.amazonaws.com"
+,"ec2-54-193-70-31.us-west-1.compute.amazonaws.com",
+"ec2-52-38-67-246.us-west-2.compute.amazonaws.com",
+"ec2-52-51-20-200.eu-west-1.compute.amazonaws.com",
+"ec2-52-29-65-165.eu-central-1.compute.amazonaws.com",
+"ec2-52-196-70-227.ap-northeast-1.compute.amazonaws.com",
+"ec2-54-169-117-213.ap-southeast-1.compute.amazonaws.com",
+"ec2-52-63-206-143.ap-southeast-2.compute.amazonaws.com",
+"ec2-54-233-185-94.sa-east-1.compute.amazonaws.com"]
+
+
+dns_server = "cs5700cdnproject.ccs.neu.edu"
+
+### read the arguments in correct format
+if len(sys.argv) == 11 and sys.argv[1] == '-p' and sys.argv[3] == '-o' and sys.argv[5] == '-n' and sys.argv[7] == '-u' and sys.argv[9] == '-i' :
+	serverport = int(sys.argv[2])
+	originserver =str(sys.argv[4])
+	nameserver = str(sys.argv[6])
+	username = str(sys.argv[8])
+	key_file = str(sys.argv[10])
+else:
+	print "improper arguments " 
+
+#print "Running httpservers on replicas..."
+for each_replica in replicas:                                                     # detach the process - ./httpprocess from the parent(terminal) and run it in background while redirecting the standard op and standard error
+	run_http = subprocess.Popen("ssh -i "+key_file+" "+username+"@"+each_replica+" nohup ./httpserver -p "+str(serverport)+" -o "+originserver+' > /dev/null 2>&1 &' ,shell=True,stdout=subprocess.PIPE)
+	run_http_op = run_http.communicate()[0]
+
+
+#print "Running DNS server..."
+
+run_dns = subprocess.Popen("ssh -i "+key_file+" "+username+"@"+dns_server+" nohup ./dnsserver -p "+str(serverport)+" -n "+nameserver+' > /dev/null 2>&1 &',shell=True,stdout=subprocess.PIPE)
+run_dns_op = run_dns.communicate()[0]
