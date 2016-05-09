@@ -1,0 +1,42 @@
+The project contains five scripts deployCDN,runCDN,stopCDN,httpserver and dnsserver
+
+1.The deployCDN copies the httpserver script to the the replica server and also changes the file permissions on the remote replica servers and same with the dnsserver.
+
+2.runCDN script remotely runs the httpserver and dnsserver on the remote servers and also it takes care if detaching the process(httpserver and dnsserver) from its parent process(shell / terminal).
+
+3.stopCDN takes care of killing the specified process for the specified username only.
+
+4. httpserver
+
+4.a This is a multithreaded server with the class BaseHTTPRequestHandler.It binds the sever to the IP and socket number specified and transfers the control to the get_handler to handle each http request from the client.
+
+4.b A Database table is created to store the webpage path(FILENAME),webpage(FILEDATA),no. of times the page was retrieved from the cache(FREQUENCY).This implements the caching of webpage.
+
+4.c For each request, the handler checks whether the FILENAME exists in the database, if not , the request is forwarded to the origin server and served back to the client.The webpage is now stored in the database/cache after checking the disk usage is the current directory.The Webpage is stored to the DB only if the current directory disk usage is less than 9.5 MB.
+If the disk size exceeds the limit, the least frequented webpage is deleted from the cache.
+
+4.d If the requested webpage is available in the cache Database, it is retireved from the cache, hits are incremented and the page is server to the client.
+
+Challenges:
+
+1.Creating the DB and retrieving the objects was challenging.
+2.The other challenge was in runCDN script to detach the process from parent process and also kill the particular process.
+
+
+DNS Server
+
+In DNS Server, with the format fro A record DNS query, the query is parsed to get the domain name that a client asks. Then from that Identification number is extracted and the domain name and IP address, the fields are put in the DNS header and a DNS response/ Packet is built with the IP Address. The DNS server is called as ./dnsserver -p <port> -n <name>
+where port is the port number of the DNS server will bind to and name is the CDN-specific name that my server translates to an IP. Also multithreading has been used to handle the client requests. 
+
+
+For finding the IP Geolocation, We used the services of IPInFoDB.com from where we get the API key and with that key, query is done by putting the IP address in the given URL which is fetched
+http://api.ipinfodb.com/v3/ip-city/?key=<api_key>&ip=<ip address>
+This gives the location of the IP address. Then with Haversine Formula. The distance between two locations is found on each point’s longitude and latitude.
+Distance= (math.sin(lat_serv)*math.sin(lat_cli)*math.cos(long_serv - long_cli) + math.cos(lat_serv)*math.cos(lat_cli))
+This distance is multiplied by the radius of earth and then by 3959 to convert the distance into miles.
+arc = math.acos( cos )* 3959
+
+
+Challenges:
+1. Parsing a DNS request and getting the IP address and sending of answer was also challenging.
+2.Finding the best replica EC2 servers with the use of IP Geolocation for handling the client request was the challenging part
