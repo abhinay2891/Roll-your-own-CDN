@@ -1,0 +1,114 @@
+#!/usr/bin/python
+import subprocess
+import sys
+import urlparse
+import re
+from socket import *
+import httplib
+from BaseHTTPServer import HTTPServer , BaseHTTPRequestHandler
+from SocketServer import ThreadingMixIn
+import threading
+import subprocess
+import sqlite3
+import zlib
+
+
+
+###
+
+if len(sys.argv) == 5 and sys.argv[1] == '-p' and sys.argv[3] == '-o' and int(sys.argv[2]) > 39999 and int(sys.argv[2]) < 65535:
+     serverport=int(sys.argv[2])
+     originserver = sys.argv[4]
+else:
+     print "The command line arguments are not in the required format, use port numbers > 40000"
+     sys.exit()
+
+
+
+def get_my_ip():                                                       # Get the IP address of the host currently running the httpserver           
+     initial_sock = socket(AF_INET, SOCK_DGRAM)
+     initial_sock.connect(("david.choffnes.com",80))
+     my_ip = initial_sock.getsockname()[0]                             # returns the IP address of the host
+     print my_ip
+     return my_ip
+
+def request_origin(url_path):                                          # forward the request from the client to origin
+     connect_to_origin = httplib.HTTPConnection(originserver+':8080')  # connect to the origin server on port 8080
+     connect_to_origin.request("GET",url_path)                         # request the content as specfied by the client
+     response = connect_to_origin.getresponse()                        # save the response from the origin server
+     return response
+
+
+class multi_thread_http_server(ThreadingMixIn, HTTPServer):
+     pass
+
+
+class get_handler(BaseHTTPRequestHandler):
+     
+     def do_GET(self):
+
+          db_connect = sqlite3.connect('cache.db')
+          cursor = db_connect.cursor()
+          element=cursor.execute("SELECT ID,FREQUENCY from CACHE_DATA where FILENAME=:filepath",{"filepath":self.path})
+          element = element.fetchone()
+        
+          if element is  None:                                  # If the page is not cached in the Database, get the page from originserver
+                                                                #redirect the response from the origin server to the client
+               origin_response = request_origin(self.path)
+               response = origin_response.read()                              
+               self.send_response(origin_response.status)
+               self.send_header('Content-type','Text/HTML')
+               self.end_headers()
+               self.wfile.write(response)                       # the response is sent to the client
+               disk_size_output = int(subprocess.check_output("du -b|tail -1| cut -f1",shell = True))  # calculate the disk usage of the current directory in bytes
+               response_size = len(response)                                                           # lenght of webpage is number of bytes
+               total_size = (response_size + disk_size_output)/(1024*1024.0)                           # calculate the total size of the cached content and the code
+               
+
+               if total_size < 9.5:                                                                    # cache the current webpage if the disk usage is < 10 MB
+                    db_connect.execute("INSERT INTO CACHE_DATA (FILENAME,FILEDATA,FREQUENCY) VALUES (?,?,?)",(self.path,buffer(zlib.compress(response)),1))
+                    db_connect.commit()
+               else:                                                                                   # else delete the least frequented webpage
+                    cursor=db_connect.cursor()                                                         # and then insert the current webpage into cache DB
+                    least_frequency = cursor.execute("SELECT MIN(FREQUENCY) from CAHCE_DATA")
+                    least_frequency = least_frequency.fetchone()
+                    element = cursor.execute("DELETE FROM CACHE_DATA where FREQUENCY=:hits",{"hits":least_frequency[0]})
+                    db_connect.commit()
+                    db_connect.execute("INSERT INTO CACHE_DATA (FILENAME,FILEDATA,FREQUENCY) VALUES (?,?,?)",(self.path,buffer(zlib.compress(response)),1))
+                    db_connect.commit()
+
+
+          else:                                                                                       # if the filepath/name is available in cache, retrieve and send to the client
+               cursor=db_connect.cursor()  
+               response = cursor.execute("SELECT FILEDATA from CACHE_DATA where FILENAME=:filepath",{"filepath":self.path})
+               response = response.fetchone()
+               response = zlib.decompress(response[0])                                                #decompress the webpage before sending to the client
+               self.send_response(200)
+               self.send_header('Content-type','Text/HTML')
+               self.end_headers()
+               self.wfile.write(response)
+               hits = int(element[1])+1                                                              # increment the page hits from this particualr webpage
+               db_connect.execute("UPDATE CACHE_DATA set FREQUENCY=:count where FILENAME=:filepath",{"count":hits,"filepath":self.path})
+
+               
+          db_connect.close()   
+          return            
+
+
+
+        
+
+
+# create DB and table initially
+db_connect=sqlite3.connect('cache.db')                                                  # create a DB file and a table containing Filename(path), Filedata(Webpage) and Frequency(No. of hits)
+db_connect.execute("CREATE TABLE IF NOT EXISTS CACHE_DATA (ID INTEGER PRIMARY KEY AUTOINCREMENT,FILENAME CHAR(50) NOT NULL,FILEDATA TEXT NOT NULL,FREQUENCY INT NOT NULL);")
+db_connect.close()
+
+
+try:
+
+     http_server = multi_thread_http_server((get_my_ip(),serverport), get_handler)     # multithreaded http handler  is bound to the host ip and port number 
+     print "Server is listening, open to requests.."
+     http_server.serve_forever()                                                       # http server listens to incoming requests and passes subroutine to the handler 
+except KeyboardInterrupt:
+     print "\nShutting down server...\n"
