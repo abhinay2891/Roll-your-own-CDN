@@ -1,0 +1,118 @@
+#!/usr/bin/python
+
+import socket
+import sys
+import threading
+import struct
+import math
+import urllib
+import urllib2
+import json
+from thread import *
+import math
+import collections
+
+global dns_response
+
+def head_construct(ident):           # Building of DNS Header with fiels as Flags, Identification no.,QDCount, ANCount, NSCount, ARCount)
+
+        Head = struct.pack('!HHHHHH',ident,0x8180,0x0001,0x0001,0,0)
+        return Head
+
+def ans_construct(best_replica):                 # DNS Answer Section
+
+        Ans = struct.pack('!HHHLH4s',0xC00C,0x0001,0x0001,5,4, socket.inet_aton(best_replica))
+        return Ans
+
+def convert_to_radians(x):                    # Function to convert degrees to radian
+
+        return x*0.0174532925199            
+
+def search_best_replica(address):
+
+        EC2_Hosts_IP = ['54.85.32.37','54.193.70.31','52.38.67.246','52.51.20.200','52.29.65.165','52.196.70.227','54.169117.213','52.63.206.143','54.233.185.94']
+        coordinates = collections.OrderedDict()                   # Inserting EC2_Hosts lat and long values in an ordered dictionary
+        results=list()
+
+        Value=((urllib2.urlopen('http://api.ipinfodb.com/v3/ip-city/?key=d681cbf298b459b62d2313e03b1333355f38ebb46e5f742896b144b4c385802f&ip=' + address)).read()).split(';')
+        x_cord = convert_to_radians(90.0 - float(Value[8]))     # Latitude value for client
+        y_cord = convert_to_radians(float(Value[9]))            # Longitude value for client
+
+        #coordinates= {'Sao_Paulo':-46.6361, -23.5475;'N.Virginia':-77.4875, 39.0437;'Frankfrut':8.6833, 50.1167;'Ireland':-6.2489, 53.3331;'Sydney':151.2082, -33.8666;'Tokyo':139.7514, 35.685;'Oregon':-119.7006, 45.8399;'Singapore':103.8558, 1.2931;'N.California':-121.895, 37.3394}
+        coordinates['Sao_Paulo'] = [-46.6361, -23.5475]
+        coordinates['N.Virginia'] = [-77.4875, 39.0437]
+        coordinates['Frankfrut'] = [8.6833, 50.1167]
+        coordinates['Ireland'] = [-6.2489, 53.3331]
+        coordinates['Sydney'] = [151.2082, -33.8666]
+        coordinates['Tokyo'] = [139.7514, 35.685]
+        coordinates['Oregon'] = [-119.7006, 45.8399]
+        coordinates['Singapore'] = [103.8558, 1.2931]
+        coordinates['N.California'] = [-121.895, 37.3394]
+        
+        for item in coordinates: 
+                distance = (math.sin(convert_to_radians(90.0 - coordinates[item][1]))*math.sin(x_cord)*math.cos(convert_to_radians(coordinates[item][0])-y_cord)+math.cos(convert_to_radians(90.0 - coordinates[item][1]))*math.cos(x_cord))
+                results.append((math.acos(distance))*3959)        # Using Haversine formula to find the arc distance between coordinates of client and server and converting into miles by multiplying it by 3959
+
+        return EC2_Hosts_IP[results.index(min(results))]
+ 
+def quest_construct(Q):              # DNS Question
+
+        initial = list()  
+        name =''      
+        start=12
+        diff=ord(Q[start])
+
+        while diff!=0:                         # Hostname extraction              
+                var=Q[start+1:start+diff+1]
+                initial.append(var)
+                start=start+diff+1
+                diff=ord(Q[start])
+
+        for item in initial:
+                name += item + '.'
+
+        return Q[12:start+5],name[:-1]
+
+def execute(query,sock):
+
+        while True:
+
+                DQ = query[0]
+                q_header = struct.unpack('!HHHHHH', DQ[:12])        # Extract Header Question for ID number
+ 		
+                question,var = quest_construct(DQ)
+                dns_response = head_construct(q_header[0]) + question + ans_construct(search_best_replica(query[1][0]))
+
+                if var==sys.argv[4]:                   
+                        sock.sendto(dns_response,query[1])         # Sending the DNS response to the client
+                else:
+                        print "Request not for domain"
+                        sys.exit()
+
+def Main():                 # Defining main function
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)                 # Socket creation
+        sock.bind(('',p_num))
+
+        while True:                                                                 # Handling client request
+                incoming_request = sock.recvfrom(62000)
+                new_request = threading.Thread(target=execute,args=(incoming_request,sock))   # Creating thread for each new request
+                new_request.start()
+
+if len(sys.argv)==5 and sys.argv[1]=='-p' and sys.argv[3]=='-n':                    # Check Args are correct or not on command line
+
+        try:
+                if int(sys.argv[2])>= 40000 and int(sys.argv[2])<65536:           # Checking for the valid port number
+                        p_num = int(sys.argv[2])
+                else:
+                        print "Port range : 40000 to 65535"
+        
+        except ValueError:
+                print "Wrong Port Number"
+                sys.exit()
+else:  
+        print "Wrong arguments; follow format: ./dnsserver -p <port> -n <name>"
+        sys.exit()
+
+if __name__=='__main__':                  # Calling on main function            
+        Main()
